@@ -32,6 +32,7 @@ contract Boardroom is ContractGuard, Operator {
 
     IERC20 private cash;
     IERC20 private share;
+    uint256 private DEFAULT_MAX_CLAIM_SNAPSHOTS = 365;
 
     mapping(address => Boardseat) private directors;
     BoardSnapshot[] private boardHistory;
@@ -73,13 +74,13 @@ contract Boardroom is ContractGuard, Operator {
         return directors[director].appointmentTime;
     }
 
-    function getCashEarningsOf(address director) public view returns (uint256) {
-        uint256 totalRewards = 0;
+    function _getCashEarningsOf(address director, uint256 endSnapshotIndex, uint256 startSnapshopIndex) internal view returns (uint256) {
+        uint256 startSnapshopIndextalRewards = 0;
         if (getShareOf(director) <= 0) {
-            return totalRewards;
+            return startSnapshopIndextalRewards;
         }
 
-        for (uint256 i = boardHistory.length; i > 0; i = i.sub(1)) {
+        for (uint256 i = endSnapshotIndex; i > startSnapshopIndex; i = i.sub(1)) {
             BoardSnapshot memory snapshot = boardHistory[i.sub(1)];
 
             if (snapshot.timestamp < getAppointmentTimeOf(director)) {
@@ -90,21 +91,42 @@ contract Boardroom is ContractGuard, Operator {
                 .rewardReceived
                 .mul(getShareOf(director))
                 .div(snapshot.totalShares);
-            totalRewards = totalRewards.add(snapshotRewards);
+            startSnapshopIndextalRewards = startSnapshopIndextalRewards.add(snapshotRewards);
         }
-        return totalRewards;
+        return startSnapshopIndextalRewards;
     }
 
+    function getCashEarningsOfWithRange(address director, uint endSnapshotIndex, uint startSnapshopIndex) public view returns (uint256) {
+        return _getCashEarningsOf(director, endSnapshotIndex, startSnapshopIndex);
+    }
+    
+    function getCashEarningsOf(address director) public view returns (uint256) {
+        // get cash earnings for the last DEFAULT_MAX_CLAIM_SNAPSHOTS snapshots by default
+        uint256 endSnapshotIndex = boardHistory.length;
+        uint256 startSnapshopIndex = endSnapshotIndex > DEFAULT_MAX_CLAIM_SNAPSHOTS ? endSnapshotIndex.sub(DEFAULT_MAX_CLAIM_SNAPSHOTS) : 0;
+        return _getCashEarningsOf(director, endSnapshotIndex, startSnapshopIndex);
+    }
+    
     /* ========== MUTATIVE FUNCTIONS ========== */
-
-    function claimDividends() public onlyOneBlock {
-        uint256 totalRewards = getCashEarningsOf(msg.sender);
+    function _claimDividends(uint endSnapshotIndex, uint startSnapshopIndex) internal onlyOneBlock {
+        uint256 totalRewards = _getCashEarningsOf(msg.sender, endSnapshotIndex, startSnapshopIndex);
         directors[msg.sender].appointmentTime = now;
 
         if (totalRewards > 0) {
             cash.safeTransfer(msg.sender, totalRewards);
             emit RewardPaid(msg.sender, totalRewards);
         }
+    }
+
+    function claimDividendsWithRange(uint256 endSnapshotIndex, uint256 startSnapshopIndex) public {
+        _claimDividends(endSnapshotIndex, startSnapshopIndex);
+    }
+    
+    function claimDividends() public {
+        // claim dividents for the last DEFAULT_MAX_CLAIM_SNAPSHOTS snapshots by default      
+        uint256 endSnapshotIndex = boardHistory.length;
+        uint256 startSnapshopIndex = endSnapshotIndex > DEFAULT_MAX_CLAIM_SNAPSHOTS ? endSnapshotIndex.sub(DEFAULT_MAX_CLAIM_SNAPSHOTS) : 0;      
+        _claimDividends(endSnapshotIndex, startSnapshopIndex);
     }
 
     function stake(uint256 amount) external {
